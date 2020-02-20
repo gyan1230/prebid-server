@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -224,8 +225,52 @@ func (deps *endpointDeps) parseRequest(httpRequest *http.Request) (req *openrtb.
 	if len(errL) > 0 {
 		errs = append(errs, errL...)
 	}
-
+	req = setBidParams(req)
 	return
+}
+
+func setBidParams(req *openrtb.BidRequest) *openrtb.BidRequest {
+	ext := unmarshalRawMessage([]byte(req.Ext))
+	if ext == nil {
+		return req
+	}
+	var ok bool
+	if ext, ok = ext["bidderparams"].(map[string]interface{}); !ok {
+		return req
+	}
+	impExt := unmarshalRawMessage([]byte(req.Imp[0].Ext))
+	for k, v := range impExt {
+		for k1, v1 := range ext {
+			if k == k1 {
+				a := v1.(map[string]interface{})
+				b := v.(map[string]interface{})
+				tmp := mergeMaps(a, b)
+				impExt[k] = tmp
+
+			}
+		}
+	}
+	raw, _ := json.Marshal(&impExt)
+	log.Println(string(raw))
+	req.Imp[0].Ext = json.RawMessage(raw)
+	return req
+}
+
+func mergeMaps(a, b map[string]interface{}) map[string]interface{} {
+	for k, v := range a {
+		b[k] = v
+	}
+	return b
+}
+
+func unmarshalRawMessage(data []byte) map[string]interface{} {
+	var tmp interface{}
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		log.Println("Error unmarshaling RawMessage : ", err)
+		return nil
+	}
+	return tmp.(map[string]interface{})
+
 }
 
 // parseTimeout returns parses tmax from the requestJson, or returns the default if it doesn't exist.
